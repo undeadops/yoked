@@ -1,0 +1,14 @@
+[Unit]
+Description=Yoked Oxen for managing users SSH Keys on your sytems
+After=syslog.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/oxen/
+PIDFile=/var/run/oxen.pid
+ExecStart=/opt/oxen/bin/oxen
+
+[Install]
+WantedBy=multi-user.target
