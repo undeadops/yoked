@@ -1,8 +1,7 @@
 from flask import Flask, request, jsonify
 
-# from flask.ext.restful import Resource, Api, abort, reqparse
 from flask.ext.sqlalchemy import SQLAlchemy
-from sqlalchemy_utils.types import ChoiceType, JSONType
+from sqlalchemy_utils.types import JSONType
 from flask import render_template
 import logging
 import json
@@ -55,23 +54,16 @@ class Instance(db.Model):
 
 
 class User(db.Model):
-    SHELLS = [
-        (u'bash', u'/usr/bin/bash'),
-        (u'zsh', u'/usr/bin/zsh')
-    ]
-    TYPE = [
-        (u'admin', u'Admin'),
-        (u'regular-user', u'Regular User')
-    ]
-
     __tablename__ = 'user'
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(64))
     username = db.Column(db.String(32))
     email = db.Column(db.String(164))
-    shell = db.Column(ChoiceType(SHELLS))
-    type = db.Column(ChoiceType(TYPE))
+    shell_id = db.Column(db.Integer, db.ForeignKey('shell.id'))
+    shell = db.relationship('Shell')
+    access_id = db.Column(db.Integer, db.ForeignKey('access.id'))
+    access = db.relationship('Access')
     ssh_pub_key = db.Column(db.UnicodeText)
     member_of = db.relationship('Group', secondary=group_linking, backref='users')
 
@@ -93,9 +85,32 @@ class Role(db.Model):
     name = db.Column(db.String(64))
     description = db.Column(db.String(256))
 
+
+class Access(db.Model):
+    __tablename__ = 'access'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(64))
+    description = db.Column(db.String(128))
+
+    def __repr__(self):
+        return "<Access(name=%s description='%s')>" % (self.name, self.description)
+
+
+class Shell(db.Model):
+    __tablename__ = 'shell'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(8))
+    path = db.Column(db.String(32))
+
+    def __repr__(self):
+        return "<Shell(name=%s path=%s)>" % (self.name, self.path)
+
 # -----------------------------------------------------------------
 # Supporting Functions
 # -----------------------------------------------------------------
+
 
 def get_members(instance):
     """
@@ -115,9 +130,9 @@ def get_members(instance):
             u = {
                 'name': user.name,
                 'username': user.username,
-                #'shell': user.shell,
+                'shell': user.shell.path,
                 'email': user.email,
-                #'type': user.type,
+                'access': user.access.name,
                 'ssh_pub_key': user.ssh_pub_key
             }
             users.update({ user.username: u })
@@ -128,6 +143,9 @@ def get_members(instance):
 # ----------------------------------------------------------------
 # API Endpoints
 # ----------------------------------------------------------------
+
+# TODO: Change up API application to use a blueprint to separate versions (like v1)
+
 @app.route('/v1/status', methods=['POST'])
 def status():
     data = json.loads(request.data)
@@ -194,10 +212,8 @@ def groups():
                      'name': u.name,
                      'username': u.username,
                      'email': u.email,
-                     # Not able to be serialized into json
-                     # Will Revisit
-                     # 'shell': u.shell,
-                     # 'type': u.type,
+                     'shell': u.shell.path,
+                     'access': u.access.name,
                      'ssh_pub_key': u.ssh_pub_key
                 }
                 users.append(d)
@@ -222,8 +238,8 @@ def api_users():
             user = {'name': result.name,
                     'username': result.username,
                     'email': result.email,
-                    # 'shell': result.shell,
-                    # 'type': result.type,
+                    'shell': result.shell.path,
+                    'access': result.access.name,
                     'ssh_pub_key': result.ssh_pub_key,
                     'groups': groups
             }

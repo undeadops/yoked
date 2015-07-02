@@ -112,7 +112,30 @@ class Oxen:
         return "\n".join((
             "# Granted access via Yoked-Oxen",
             ssh_public_key, ""))
-
+    
+    def sudoerstext(self, username):
+        return "\n".join((
+            "# Granted Sudoers Access via Yoked-Oxen",
+            "%s ALL=(ALL) NOPASSWD:ALL" % username, ""))
+    
+    def add_sudoers(self, user):
+        """
+        Add User to Sudoers if type == Admin
+        :param user:
+        :return:
+        """
+        username = user['username']
+        sudoers_dir = '/etc/sudoers.d/'
+        sudoers_f = sudoers_dir + username
+        # TODO: Rework this to be more dynamic... Another API call possibly to pull down suders text
+        if user['access'] == 'admin':
+            if os.path.exists(sudoers_dir):
+                text = self.sudoerstext(username)
+                if not os.path.isfile(sudoers_f) or open(sudoers_f).read() != text:
+                    open(sudoers_f, "w+").write(text)
+                    subprocess.call(['chmod', '0440', sudoers_f])
+                    subprocess.call(['chown', 'root:root', sudoers_f])
+            
     def add_user(self, user):
         """
         Add User to the system
@@ -122,18 +145,18 @@ class Oxen:
         username = user['username']
         name = user['name']
         email = user['email']
-        #shell = user['shell']
-        #type = user['type']
-        shell = '/bin/bash'
+        shell = user['shell']
+        access = user['access']
         ssh_pub_key = user['ssh_pub_key']
 
         # TODO: Config File option for changing base dir for $HOME
         home_dir = '/home/' + username
         gecos = 'yoked-' + email + ' ' + name
 
-        # TODO: Check if shell exits before running command, defaults to /bin/bash
-        # Or possibly overridden by yoked interface
-        cmd = ['useradd', '-c' + gecos, '-m', '-s/bin/bash', '-d' + home_dir, username]
+        if not os.path.isfile(shell):
+            logging.info('Error: Requested Shell did not exist, switch to /bin/bash')
+            shell = '/bin/bash'
+        cmd = ['useradd', '-c' + gecos, '-m', '-s'+shell, '-d' + home_dir, username]
         logging.debug('Adding User [%s]' % cmd)
         try:
             subprocess.check_call(cmd)
@@ -146,6 +169,7 @@ class Oxen:
         current_users = self.gather_users()
         if username in current_users:
             self.add_ssh_key(user)
+            self.add_sudoers(user)
             return True
         else:
             return False
