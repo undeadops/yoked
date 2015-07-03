@@ -13,6 +13,7 @@ class Oxen:
         self.endpoint = 'http://192.168.122.1:5000/v1/status'
         self.logger = logging.getLogger(__name__)
 
+        
     def gather_users(self):
         """
         Gather Current Users added with yoked
@@ -83,10 +84,24 @@ class Oxen:
         # which route to take.
         home_dir = '/home/' + username
         removed_home_dir = '/home/deleted-' + username
+        sudoers_f = '/etc/sudoers.d/' + username
+        # Remove SUDOERS
+        if os.path.exists(sudoers_f):
+            os.unlink(sudoers_f)
         # Kill open sessions
         subprocess.call(['pkill', '-9', '-u', username])
         subprocess.call(['mv', '-f', home_dir, removed_home_dir])
         subprocess.call(['userdel', username])
+        
+    def del_sudoers(self, user):
+        """
+        Delete users sudoers file
+        :param user:
+        :return:
+        """
+        username = user
+        sudoers_f = '/etc/sudoers.d/' + username
+        os.unlink(sudoers_f)
 
     def add_ssh_key(self, user):
         """
