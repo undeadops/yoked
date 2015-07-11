@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from flask import abort
 
 from flask.ext.sqlalchemy import SQLAlchemy
 from sqlalchemy_utils.types import JSONType
@@ -21,13 +22,13 @@ app.logger.setLevel(logging.INFO)
 # Database Models
 # ------------------------------------------------
 group_linking=db.Table('group_linking',
-                       db.Column('group_id', db.Integer,db.ForeignKey('group.id'), nullable=False),
-                       db.Column('user_id', db.Integer,db.ForeignKey('user.id'), nullable=False),
-                       db.PrimaryKeyConstraint('group_id', 'user_id') )
+                       db.Column('group_id', db.Integer, db.ForeignKey('group.id'), nullable=False),
+                       db.Column('user_id', db.Integer, db.ForeignKey('user.id'), nullable=False),
+                       db.PrimaryKeyConstraint('group_id', 'user_id'))
 
 group_instance=db.Table('group_instances',
-                       db.Column('group_id', db.Integer,db.ForeignKey('group.id'), nullable=False),
-                       db.Column('instance_id', db.Integer,db.ForeignKey('instance.id'), nullable=False),
+                       db.Column('group_id', db.Integer, db.ForeignKey('group.id'), nullable=False),
+                       db.Column('instance_id', db.Integer, db.ForeignKey('instance.id'), nullable=False),
                        db.PrimaryKeyConstraint('group_id', 'instance_id'))
 
 
@@ -118,13 +119,13 @@ def get_members(instance):
     :param instance:
     :return dict(users):
     """
-    groups = []
+    vGroups = []
     users = {}
 
     for g in instance.member_of:
-        groups.append(g.id)
+        vGroups.append(g.id)
 
-    for g in groups:
+    for g in vGroups:
         group = Group.query.get(g)
         for user in group.users:
             u = {
@@ -135,9 +136,28 @@ def get_members(instance):
                 'access': user.access.name,
                 'ssh_pub_key': user.ssh_pub_key
             }
-            users.update({ user.username: u })
+            users.update({user.username: u})
 
     return users
+
+
+def json_group(group):
+    users = []
+    for u in group.users:
+        d = {'id': u.id,
+             'name': u.name,
+             'username': u.username,
+             'email': u.email,
+             'shell': u.shell.path,
+             'access': u.access.name,
+             'ssh_pub_key': u.ssh_pub_key
+             }
+        users.append(d)
+    g = {'name': group.name,
+         'id': group.id,
+         'users': users
+         }
+    return g
 
 
 # ----------------------------------------------------------------
@@ -145,12 +165,13 @@ def get_members(instance):
 # ----------------------------------------------------------------
 
 # TODO: Change up API application to use a blueprint to separate versions (like v1)
+# TODO: Whats the Proper error codes to issue for status', fix error stats and make sure return values are proper
 
 @app.route('/v1/status', methods=['POST'])
 def status():
     data = json.loads(request.data)
 
-    instance = Instance.query.filter_by(instance_name = data['system']['name']).first()
+    instance = Instance.query.filter_by(instance_name=data['system']['name']).first()
     if instance is None:
         i = Instance()
         i.instance_name = data['system']['name']
@@ -172,8 +193,8 @@ def status():
         users = get_members(instance)
     else:
         users = {}
-    message = { 'status': "OK",
-                'users': users }
+    message = {'status': "OK",
+               'users': users}
     resp = jsonify(message)
     resp.status_code = 201
     return resp
@@ -182,11 +203,11 @@ def status():
 @app.route('/v1/instances', methods=['GET'])
 def instances():
     results = Instance.query.all()
-    instances = []
+    vInstances = []
     for result in results:
         groups = []
         for g in result.member_of:
-            groups.append({ 'id': g.id, 'name': g.name })
+            groups.append({'id': g.id, 'name': g.name})
         i = {
             'id': result.id,
             'name': result.instance_name,
@@ -196,55 +217,72 @@ def instances():
             'last_seen': result.date_last,
             'groups': groups
         }
-        instances.append(i)
-    return jsonify({'Instances': instances })
+        vInstances.append(i)
+    return jsonify({'Instances': vInstances })
 
 
-@app.route('/v1/groups', methods=['GET', 'POST', 'PUT'])
+@app.route('/v1/groups', methods=['GET'])
 def groups():
+    groups = Group.query.all()
+    active_groups = []
+    for group in groups:
+        g = json_group(group)
+        active_groups.append(g)
+        return jsonify({'groups': active_groups})
+
+
+@app.route('/v1/groups', methods=['POST'])
+def add_groups():
+    if not request.json or not 'name' in request.json:
+        abort(400)
+    g = Group(name=request.json['name'])
+    db.session.add(g)
+    db.session.commit()
+    g = Group.query.filter_by(name=request.json['name'])
+    if g:
+        group = json_group(g)
+        return jsonify({"groups": group})
+    else:
+        return abort(400)
+
+
+@app.route('/v1/group/<int:group_id>', methods=['GET', 'DELETE'])
+def modify_group(group_id):
     if request.method == 'GET':
-        results = Group.query.all()
-        groups = []
-        for result in results:
-            users = []
-            for u in result.users:
-                d = {'id': u.id,
-                     'name': u.name,
-                     'username': u.username,
-                     'email': u.email,
-                     'shell': u.shell.path,
-                     'access': u.access.name,
-                     'ssh_pub_key': u.ssh_pub_key
-                }
-                users.append(d)
-            group = {'name': result.name,
-                     'users': users
-                    }
-            groups.append(group)
-        return jsonify({'groups': groups })
+        g = Group.query.get(group_id)
+        if g:
+            group = json_group(g)
+            return jsonify({"groups": group})
+        else:
+            return abort(400)
+    if request.method == 'DELETE':
+        if Group.query.filter_by(id=group_id).delete():
+            db.session.commit()
+            return jsonify({"Status": "OK"})
+        else:
+            return abort(400)
 
 
 @app.route('/v1/users', methods=['GET', 'POST', 'PUT'])
 def api_users():
     if request.method == 'GET':
-        results = User.query.all()
+        user_results = User.query.all()
         users = []
-        for result in results:
-            groups = []
-            for g in result.member_of:
+        for u in user_results:
+            user_groups = []
+            for g in u.member_of:
                 d = {'id': g.id,
-                     'name': g.name }
-                groups.append(d)
-            user = {'name': result.name,
-                    'username': result.username,
-                    'email': result.email,
-                    'shell': result.shell.path,
-                    'access': result.access.name,
-                    'ssh_pub_key': result.ssh_pub_key,
-                    'groups': groups
-            }
+                     'name': g.name}
+                user_groups.append(d)
+            user = {'name': u.name,
+                    'username': u.username,
+                    'email': u.email,
+                    'shell': u.shell.path,
+                    'access': u.access.name,
+                    'ssh_pub_key': u.ssh_pub_key,
+                    'groups': user_groups}
             users.append(user)
-        return jsonify({'users': users })
+        return jsonify({'users': users})
 
 
 @app.route('/v1/roles', methods=['GET'])
