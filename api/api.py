@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-from flask import abort
+from flask import abort, url_for
 
 from flask.ext.sqlalchemy import SQLAlchemy
 from sqlalchemy_utils.types import JSONType
@@ -7,7 +7,7 @@ from flask import render_template
 import logging
 import json
 import datetime
-# import pprint
+
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///yoked.db'
@@ -119,13 +119,13 @@ def get_members(instance):
     :param instance:
     :return dict(users):
     """
-    vGroups = []
-    users = {}
+    mygroups = []
+    myusers = {}
 
     for g in instance.member_of:
-        vGroups.append(g.id)
+        mygroups.append(g.id)
 
-    for g in vGroups:
+    for g in mygroups:
         group = Group.query.get(g)
         for user in group.users:
             u = {
@@ -136,9 +136,20 @@ def get_members(instance):
                 'access': user.access.name,
                 'ssh_pub_key': user.ssh_pub_key
             }
-            users.update({user.username: u})
+            myusers.update({user.username: u})
 
-    return users
+    return myusers
+
+
+def json_user(myuser):
+    u = {'id': myuser.id,
+         'name': myuser.name,
+         'username': myuser.username,
+         'email': myuser.email,
+         'shell': myuser.shell.path,
+         'access': myuser.access.name,
+         'ssh_pub_key': myuser.ssh_pub_key}
+    return u
 
 
 def json_group(group):
@@ -166,6 +177,7 @@ def json_group(group):
 
 # TODO: Change up API application to use a blueprint to separate versions (like v1)
 # TODO: Whats the Proper error codes to issue for status', fix error stats and make sure return values are proper
+# TODO: Ensure replies are consistent across function endpoints
 
 @app.route('/v1/status', methods=['POST'])
 def status():
@@ -231,7 +243,7 @@ def groups():
         return jsonify({'groups': active_groups})
 
 
-@app.route('/v1/groups', methods=['POST'])
+@app.route('/v1/group', methods=['POST'])
 def add_groups():
     if not request.json or not 'name' in request.json:
         abort(400)
@@ -263,26 +275,61 @@ def modify_group(group_id):
             return abort(400)
 
 
-@app.route('/v1/users', methods=['GET', 'POST', 'PUT'])
-def api_users():
+@app.route('/v1/users', methods=['GET'])
+def list_users():
+    user_results = User.query.all()
+    users = []
+    for u in user_results:
+        user_groups = []
+        for g in u.member_of:
+            d = {'id': g.id,
+                 'name': g.name}
+            user_groups.append(d)
+        users.append(json_user(u))
+    return jsonify({'users': users})
+
+
+@app.route('/v1/user', methods=['POST'])
+def users_add():
+    if request.json:
+        shell = Shell.query.filter_by(name=request.json['shell']).first()
+        access = Access.query.filter_by(name=request.json['access']).first()
+        user = User()
+        user.name = request.json['name']
+        user.username = request.json['username']
+        user.email = request.json['email']
+        user.shell = shell
+        user.access = access
+        user.ssh_pub_key = request.json['ssh_pub_key']
+        db.session.add(user)
+        db.session.commit()
+        u = User.query.filter_by(name=request.json['name']).first()
+        response = jsonify({"status": 201, "message": "Success!"})
+        response.status_code = 201
+        response.headers['location'] = url_for('users', user_id=u.id)
+        return response
+    else:
+        return abort(404)
+
+
+@app.route('/v1/user/<int:user_id>', methods=['GET', 'DELETE'])
+def users(user_id):
     if request.method == 'GET':
-        user_results = User.query.all()
-        users = []
-        for u in user_results:
-            user_groups = []
-            for g in u.member_of:
-                d = {'id': g.id,
-                     'name': g.name}
-                user_groups.append(d)
-            user = {'name': u.name,
-                    'username': u.username,
-                    'email': u.email,
-                    'shell': u.shell.path,
-                    'access': u.access.name,
-                    'ssh_pub_key': u.ssh_pub_key,
-                    'groups': user_groups}
-            users.append(user)
-        return jsonify({'users': users})
+        u = User.query.get(user_id)
+        if u:
+            user = json_user(u)
+            return jsonify({"users": user, "status": 200, "message": "OK"}), 200
+        else:
+            return abort(404)
+    elif request.method == 'DELETE':
+        if User.query.filter_by(id=user_id).delete():
+            db.session.commit()
+            response = jsonify({'status': 201, 'message': "User Deleted"})
+            response.status_code = 201
+            response.headers['location'] = url_for('list_users')
+            return response
+        else:
+            return abort(404)
 
 
 @app.route('/v1/roles', methods=['GET'])
