@@ -18,6 +18,13 @@ file_handler = logging.FileHandler('yoked.log')
 app.logger.addHandler(file_handler)
 app.logger.setLevel(logging.INFO)
 
+
+# ------------------------------------------------
+# Database house keeping, clean up open sessions
+@app.teardown_appcontext
+def shutdown_session(exception=None):
+    db.session.remove()
+
 # ------------------------------------------------
 # Database Models
 # ------------------------------------------------
@@ -209,13 +216,24 @@ def status():
                'users': users}
     resp = jsonify(message)
     resp.status_code = 201
+    resp.headers['location'] = url_for('get_instances', instance_id=instance.id)
     return resp
+
+
+@app.route('/v1/instance/<int:instance_id>', methods=['GET'])
+def get_instances(instance_id):
+    if request.method == 'GET':
+        inst = Instance.query.get(instance_id)
+        resp = jsonify()
+        resp.status.code = 200
+        resp.headers['location'] = url_for('get_instances', instance_id=inst.id)
+        return resp
 
 
 @app.route('/v1/instances', methods=['GET'])
 def instances():
     results = Instance.query.all()
-    vInstances = []
+    myinsts = []
     for result in results:
         groups = []
         for g in result.member_of:
@@ -229,8 +247,11 @@ def instances():
             'last_seen': result.date_last,
             'groups': groups
         }
-        vInstances.append(i)
-    return jsonify({'Instances': vInstances })
+        myinsts.append(i)
+        resp = jsonify({"instances": myinsts})
+        resp.status_code = 200
+        resp.headers['location'] = url_for('instances')
+    return resp
 
 
 @app.route('/v1/groups', methods=['GET'])
@@ -240,39 +261,51 @@ def groups():
     for group in groups:
         g = json_group(group)
         active_groups.append(g)
-        return jsonify({'groups': active_groups})
+    resp = jsonify({'groups': active_groups})
+    resp.status_code = 200
+    resp.headers['location'] = url_for('groups')
+    return resp
 
 
 @app.route('/v1/group', methods=['POST'])
 def add_groups():
-    if not request.json or not 'name' in request.json:
-        abort(400)
-    g = Group(name=request.json['name'])
-    db.session.add(g)
-    db.session.commit()
-    g = Group.query.filter_by(name=request.json['name'])
-    if g:
-        group = json_group(g)
-        return jsonify({"groups": group})
+    if request.method == 'POST':
+        if not request.json or not 'name' in request.json:
+            abort(400)
+        g = Group(name=request.json['name'])
+        db.session.add(g)
+        db.session.commit()
+        g = Group.query.filter_by(name=request.json['name'])
+        if g:
+            mygroup = json_group(g)
+            resp = jsonify({"groups": mygroup})
+            resp.status_code = 201
+            resp.headers['location'] = url_for('get_group', group_id=g.id)
+            return resp
+        else:
+            resp = jsonify({"status": 501, "message": "There was an error creating the group"})
+            resp.status_code = 501
+            resp.headers['location'] = url_for('groups')
+            return resp
     else:
         return abort(400)
 
 
 @app.route('/v1/group/<int:group_id>', methods=['GET', 'DELETE'])
-def modify_group(group_id):
+def get_group(group_id):
     if request.method == 'GET':
         g = Group.query.get(group_id)
         if g:
             group = json_group(g)
             return jsonify({"groups": group})
         else:
-            return abort(400)
+            return abort(404)
     if request.method == 'DELETE':
         if Group.query.filter_by(id=group_id).delete():
             db.session.commit()
             return jsonify({"Status": "OK"})
         else:
-            return abort(400)
+            return abort(404)
 
 
 @app.route('/v1/users', methods=['GET'])
@@ -304,32 +337,58 @@ def users_add():
         db.session.add(user)
         db.session.commit()
         u = User.query.filter_by(name=request.json['name']).first()
-        response = jsonify({"status": 201, "message": "Success!"})
-        response.status_code = 201
-        response.headers['location'] = url_for('users', user_id=u.id)
-        return response
+        resp = jsonify({"status": 201, "message": "Success!"})
+        resp.status_code = 201
+        resp.headers['location'] = url_for('users', user_id=u.id)
+        return resp
     else:
         return abort(404)
 
 
-@app.route('/v1/user/<int:user_id>', methods=['GET', 'DELETE'])
+@app.route('/v1/user/<int:user_id>', methods=['GET', 'DELETE', 'PUT'])
 def users(user_id):
     if request.method == 'GET':
         u = User.query.get(user_id)
         if u:
             user = json_user(u)
-            return jsonify({"users": user, "status": 200, "message": "OK"}), 200
+            resp = jsonify({'status': 200, 'message': 'OK', 'users': user})
+            resp.status_code = 200
+            resp.headers['location'] = url_for('users', user_id=u.id)
+            return resp
         else:
             return abort(404)
     elif request.method == 'DELETE':
         if User.query.filter_by(id=user_id).delete():
             db.session.commit()
-            response = jsonify({'status': 201, 'message': "User Deleted"})
-            response.status_code = 201
-            response.headers['location'] = url_for('list_users')
-            return response
+            resp = jsonify({'status': 201, 'message': "User Deleted"})
+            resp.status_code = 201
+            resp.headers['location'] = url_for('list_users')
+            return resp
         else:
             return abort(404)
+    elif request.method == 'PUT':
+        u = User.query.get(user_id)
+        if u and request.json:
+            if request.json['name']:
+                u.name = request.json['name']
+            if request.json['email']:
+                u.email = request.json['email']
+            if request.json['ssh_pub_key']:
+                u.ssh_pub_key = request.json['ssh_pub_key']
+            if request.json['shell']:
+                s = Shell.query.filter_by(name=request.json['shell']).first()
+                u.shell = s
+            if request.json['access']:
+                a = Access.query.filter_by(name=request.json['access']).first()
+                u.access = a
+            db.session.add(u)
+            db.session.commit()
+            resp = jsonify({"status": 201, "message": "User Updated"})
+            resp.status_code = 201
+            resp.headers['location'] = url_for('users', user_id=u.id)
+            return resp
+        else:
+            return abort(400)
 
 
 @app.route('/v1/roles', methods=['GET'])
