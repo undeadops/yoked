@@ -23,7 +23,7 @@ set -e
 echo "Creating Oxen Directory (/opt/oxen)"
 [ -d /opt/oxen ] && (
     echo "Please remove /opt/oxen before continuing." >&2; exit -1)
-mkdir /opt/oxen/ || (
+mkdir -p /opt/oxen/ || (
     echo "Unable to create directory /opt/oxen." >&2; exit 1)
 
 
