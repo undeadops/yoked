@@ -1,11 +1,14 @@
 #!/usr/bin/env python
 
-from yokedclient import commands
+__version__ = "0.1"
+
+import sys
+from .commands import Commands
 
 def main():
     """
     Main Interface into CLI
     """
     # Run a test command
-    commands.run()
-
+    command = Commands()
+    command.run()
