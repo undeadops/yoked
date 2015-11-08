@@ -1,0 +1,43 @@
+# Docker Compose File
+
+api:
+  restart: always
+  build: ./api/
+  expose:
+    - "3000"
+  links:
+    - db:db
+  volumes:
+    - /Users/mitch/git/yoked/api:/opt/yoked/api
+  env_file:
+    - '.env'
+  command: /usr/bin/gunicorn -w 2 -b :3000 api:app
+
+nginx:
+  restart: always
+  build: ./nginx/
+  ports:
+    - "80:80"
+#  volumes:
+#    - /www/static
+#  volumes_from:
+#    - api
+  links:
+    - api:api
+
+data:
+  restart: always
+  image: postgres:latest
+  volumes:
+    - /var/lib/postgresql
+  command: /bin/true
+
+db:
+  restart: always
+  image: postgres:latest
+  env_file:
+    - '.env'
+  volumes_from:
+    - data
+  ports:
+    - "5432:5432"

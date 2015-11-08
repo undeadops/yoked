@@ -1,19 +1,30 @@
+#!/usr/bin/env python
+
 import time, sys, socket, json
 import os
 import requests
 import logging
 import subprocess
 import pprint
+import ConfigParser
 
 class Oxen:
     def __init__(self):
+        self.logger = logging.getLogger(__name__)
         self.is_dead = False
         self.system = {}
         # TODO: Use config file and override with environment vars for URL
-        self.endpoint = 'http://192.168.122.1:5000/v1/status'
-        self.logger = logging.getLogger(__name__)
+        try:
+            self.config = ConfigParser.ConfigParser()
+            self.config.read('/etc/oxen.ini')
+        except OSError, e:
+            self.logger.critical("Unable to read config file: /etc/oxen.ini")
+            self.logger.critical("Error: %s" % e)
+        self.api_host = self.config.get('main', 'apihost')
+        self.endpoint = 'http://%s/v1/status' % self.api_host
 
-        
+
+
     def gather_users(self):
         """
         Gather Current Users added with yoked
@@ -92,7 +103,7 @@ class Oxen:
         subprocess.call(['pkill', '-9', '-u', username])
         subprocess.call(['mv', '-f', home_dir, removed_home_dir])
         subprocess.call(['userdel', username])
-        
+
     def del_sudoers(self, user):
         """
         Delete users sudoers file
@@ -127,12 +138,12 @@ class Oxen:
         return "\n".join((
             "# Granted access via Yoked-Oxen",
             ssh_public_key, ""))
-    
+
     def sudoerstext(self, username):
         return "\n".join((
             "# Granted Sudoers Access via Yoked-Oxen",
             "%s ALL=(ALL) NOPASSWD:ALL" % username, ""))
-    
+
     def add_sudoers(self, user):
         """
         Add User to Sudoers if type == Admin
@@ -150,7 +161,7 @@ class Oxen:
                     open(sudoers_f, "w+").write(text)
                     subprocess.call(['chmod', '0440', sudoers_f])
                     subprocess.call(['chown', 'root:root', sudoers_f])
-            
+
     def add_user(self, user):
         """
         Add User to the system

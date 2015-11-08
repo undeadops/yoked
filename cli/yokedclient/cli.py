@@ -11,4 +11,3 @@ def main():
     """
     # Run a test command
     command = Commands()
-    command.run()

@@ -4,13 +4,14 @@ from flask import abort, url_for
 from flask.ext.sqlalchemy import SQLAlchemy
 from sqlalchemy_utils.types import JSONType
 from flask import render_template
+from config import BaseConfig
 import logging
 import json
 import datetime
 
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///yoked.db'
+app.config.from_object(BaseConfig)
 
 db = SQLAlchemy(app)
 
@@ -248,9 +249,9 @@ def instances():
             'groups': groups
         }
         myinsts.append(i)
-        resp = jsonify({"instances": myinsts})
-        resp.status_code = 200
-        resp.headers['location'] = url_for('instances')
+    resp = jsonify({"instances": myinsts})
+    resp.status_code = 200
+    resp.headers['location'] = url_for('instances')
     return resp
 
 
@@ -405,4 +406,4 @@ def index():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0')
+    app.run(host='0.0.0.0')

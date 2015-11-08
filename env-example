@@ -1,0 +1,9 @@
+# Add Environment Variables
+
+DEBUG=False
+SECRET_KEY=<secret key>
+DB_NAME=yoked
+DB_USER=<user>
+DB_PASS=<password>
+DB_SERVICE=postgres
+DB_PORT=5432
