@@ -325,6 +325,7 @@ def list_users():
 
 @app.route('/v1/user', methods=['POST'])
 def users_add():
+    print request
     if request.json:
         shell = Shell.query.filter_by(name=request.json['shell']).first()
         access = Access.query.filter_by(name=request.json['access']).first()

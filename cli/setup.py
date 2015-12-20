@@ -23,6 +23,9 @@ setup(name='yoked-client',
       license='MIT',
       packages=['yokedclient'],
       zip_safe=False,
+      install_requires=[
+          'requests==2.8.1',
+      ],
       entry_points = {
           'console_scripts': ['yokedctl = yokedclient.cli:main'],
           }
