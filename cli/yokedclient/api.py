@@ -20,5 +20,5 @@ class API:
 
     def post_add_user(self, payload):
         endpoint = "%s/v1/user" % self.apihost
-        r = self.requests.post(endpoint, headers=self.headers)
+        r = self.requests.post(endpoint, data=payload, headers=self.headers)
         return r
